@@ -11,7 +11,7 @@ Delivered link:
 `?biz=Hessey%20Performance&tagline=QuotaFit%20Code` on the live URL
 (plus `city`, `phone`, `addr`, `services`, `hours` as needed).
 
-## The four flows (all live in the chat widget)
+## The five flows (all live in the chat widget)
 
 1. **Programmes & pricing Q&A** — 1:1 coaching $249/mo, 12-Week Signature Programme
    $599, Hybrid $349/mo, Small-Group (max 6) $149/mo, Nutrition Check-Ins add-on
@@ -26,6 +26,15 @@ Delivered link:
    saved to the demo dataset and mirrored in the **Captured leads inbox** panel.
 4. **Review routing** — 5★ → Google review button, 1–4★ → private feedback that is
    persisted to the inbox as a private note (never a fake public review).
+5. **60-sec training quiz** (added 2026-10-25, salon pattern) — 🧲 chip or "quiz":
+   fitness goal → programme interest → timeline → name (2–40 chars) → phone
+   (`digits.length < 7` rejects "notaphone") → "✅ Quiz complete!" training-profile
+   card (Goal/Programme/Timeline) + lead saved to the inbox as
+   "Training quiz — qualified lead" (source: training quiz). Kai promises a
+   personalized training-plan recommendation only — no invented results,
+   guarantees, before/afters, or prices beyond the page's labelled demo prices.
+   Router audit 2026-10-25: no gym router keyword starts with "qui", so the chip
+   value "quiz" can never be hijacked, and "quiz" hijacks no existing branch.
 
 ## Honesty standard
 
@@ -39,7 +48,7 @@ Delivered link:
 ## Files
 
 - `index.html` — VoltHaus site + widget markup
-- `assets/widget.js` — Kai's brain (router, 4 flows, leads → localStorage, `window.__maya` test hooks)
+- `assets/widget.js` — Kai's brain (router, 5 flows, leads → localStorage, `window.__maya` test hooks)
 - `assets/style.css` — charcoal + volt-green fleet palette
 - `og-preview.jpg` — 1200×630 link-share card
 

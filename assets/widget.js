@@ -148,10 +148,11 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review
+    mode: 'idle',          // idle | booking | afterhours | review | quiz
     step: 0,
     booking: {},
     ah: {},
+    quiz: {},
     lastTopic: null
   };
 
@@ -381,6 +382,7 @@
 
   function defaultChips() {
     return [
+      { label: '&#129522; 60-sec training quiz', value: 'quiz' },
       { label: '&#128170; Programmes &amp; prices' },
       { label: '&#128197; Book a free discovery call' },
       { label: '&#127769; After-hours demo' },
@@ -559,17 +561,110 @@
       [{ label: '&#128197; Book a free discovery call' }, { label: 'No thanks', value: 'no thanks' }]);
   }
 
+  /* ---------- 60-sec training quiz (lead-capture, fleet port 2026-10-25, salon pattern) ----------
+     HONESTY (hard rule): Kai NEVER invents results, guarantees, before/afters, prices
+     beyond the demo prices already labelled on this page, or availability — the quiz
+     promises a personalized training-plan recommendation from the coach, nothing more.
+     ROUTER AUDIT 2026-10-25: NO gym router keyword starts with 'qui', so the chip
+     value 'quiz' can never be hijacked; and none of the trigger phrases below
+     word-start-match an existing keyword (the real-estate 'buy'/'buyer' class does
+     not apply here — 'programme' was deliberately NOT used as a trigger phrase,
+     because it IS an existing services keyword). */
+  var QUIZ_GOALS = ['Fat Loss', 'Build Muscle', 'Athletic Performance', 'General Fitness', 'Nutrition Coaching'];
+  var QUIZ_PROGRAMMES = ['1:1 Online Coaching', '12-Week Signature Programme', 'Hybrid Coaching', 'Small-Group Coaching', 'Nutrition Check-Ins', 'Competition Prep'];
+  var QUIZ_TIMELINES = ['ASAP', 'This week', 'This month', 'Just exploring'];
+
+  function canonChoice(t, options) {
+    var tl = t.toLowerCase();
+    for (var i = 0; i < options.length; i++) {
+      if (tl === options[i].toLowerCase()) return options[i];
+    }
+    return t.trim().slice(0, 60); /* free text accepted, length-capped */
+  }
+
+  function startQuiz() {
+    S.mode = 'quiz'; S.step = 0; S.quiz = {};
+    return say('The <b>60-second training quiz!</b> &#129522;<br><br>' +
+      'Three quick questions and I&rsquo;ll build your <b>training profile</b> &mdash; then the coach puts together a <b>personalized training-plan recommendation</b> for you. No spam, no guesswork.<br><br>' +
+      '<b>What&rsquo;s your fitness goal?</b>',
+      QUIZ_GOALS.map(function (c) { return { label: c }; }));
+  }
+
+  function quizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.quiz.goal = canonChoice(t, QUIZ_GOALS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.quiz.goal) + '</b>. &#128170;<br><br><b>Which programme</b> interests you most?',
+        QUIZ_PROGRAMMES.map(function (c) { return { label: c }; }));
+    }
+    if (S.step === 1) {
+      S.quiz.programme = canonChoice(t, QUIZ_PROGRAMMES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.quiz.programme) + '</b> it is. &#128170;<br><br><b>When</b> are you looking to start?',
+        QUIZ_TIMELINES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 2) {
+      S.quiz.timeline = canonChoice(t, QUIZ_TIMELINES); S.step = 3;
+      return say('Noted &mdash; <b>' + escapeHtml(S.quiz.timeline) + '</b>. &#128170;<br><br><b>What&rsquo;s your name</b> for the training profile?');
+    }
+    if (S.step === 3) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the training profile?');
+      }
+      S.quiz.name = t; S.step = 4;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your training-plan recommendation to?');
+    }
+    if (S.step === 4) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.quiz.phone = t;
+      return finishQuiz();
+    }
+  }
+
+  function finishQuiz() {
+    var q = S.quiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Training quiz — qualified lead',
+      details: 'Goal ' + q.goal + ' · Programme ' + q.programme + ' · Timeline ' + q.timeline,
+      source: 'training quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.quiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#129522;<br><br>Here&rsquo;s your training profile:' },
+      {
+        dash: [
+          ['Goal', q.goal],
+          ['Programme', q.programme],
+          ['Timeline', q.timeline]
+        ]
+      },
+      {
+        html: 'The coach will put together your <b>personalized training-plan recommendation</b> and send it to your number. ' +
+          'No invented promises here &mdash; your plan is built around your goal and schedule, and the free discovery call is where the coach confirms the details with you. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a coaching conversation</b>, not a lead lost to the next coach. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
 
     if (S.mode === 'booking') return bookingStep(text);
     if (S.mode === 'afterhours') return afterHoursStep(text);
+    if (S.mode === 'quiz') return quizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
     if (has(t, 'book', 'consult', 'discovery', 'schedul', 'sign up', 'join', 'get started', 'free call', 'appointment', 'call back')) return startBooking();
     if (has(t, 'after hour', 'after-hour', 'closed', 'late night', 'midnight', '11:42')) return startAfterHours();
     if (has(t, 'review', 'rate your', 'stars', 'feedback')) return startReview();
+    /* 60-sec training quiz (see audit comment above) */
+    if (has(t, 'quiz', 'training quiz', 'gym quiz', 'fitness quiz')) return startQuiz();
     if (has(t, 'injur', 'hurt', 'sore', 'pain', 'knee', 'back prob', 'doctor', 'medical', 'rehab', 'condition')) return say(injuryHtml(), [{ label: '&#128197; Book a free discovery call' }]);
     if (has(t, 'price', 'pricing', 'cost', 'how much', 'fee', '$$', 'expensive', 'cheap', 'prices')) return say(pricingHtml(), [{ label: '&#128197; Book a free discovery call' }]);
     if (has(t, 'signature', '12 week', '12-week', 'flagship')) return say(signatureHtml(), [{ label: '&#128197; Book a free discovery call' }]);
