@@ -148,11 +148,12 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review | quiz
+    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz
     step: 0,
     booking: {},
     ah: {},
     quiz: {},
+    prepquiz: {},
     lastTopic: null
   };
 
@@ -383,6 +384,7 @@
   function defaultChips() {
     return [
       { label: '&#129522; 60-sec training quiz', value: 'quiz' },
+      { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
       { label: '&#128170; Programmes &amp; prices' },
       { label: '&#128197; Book a free discovery call' },
       { label: '&#127769; After-hours demo' },
@@ -651,6 +653,83 @@
     ]);
   }
 
+  /* ---------- 60-sec consult-prep quiz (fleet second-quiz port, 2026-10-30, salon pattern) ----------
+     HONESTY (hard rule): Kai NEVER invents results, guarantees, before/afters, prices
+     beyond the demo prices already labelled on this page, or availability — the quiz
+     promises a personalized consultation/training plan built around the visitor's
+     priority, plus what to bring to the first session, nothing more.
+     ROUTER AUDIT 2026-10-30: the chip value 'prep quiz' contains 'quiz', so the
+     training quiz's word-start 'quiz' match would hijack it (real-estate
+     'buy'/'buyer' bug class, 2026-10-20) — hence the prep trigger sits BEFORE the
+     training-quiz trigger. Gym-specific: it also sits BEFORE the booking branch,
+     because booking's 'consult' keyword would otherwise hijack the 'consult prep
+     quiz' phrase. Bare 'prep' alone triggers nothing. */
+  var PREP_PRIORS = ['New to training', 'Trained before', 'Training regularly'];
+  var PREP_PRIORITIES = ['Lose fat', 'Build muscle', 'Get stronger', 'Stay consistent'];
+
+  function startPrepQuiz() {
+    S.mode = 'prepquiz'; S.step = 0; S.prepquiz = {};
+    return say('<b>&#128203; The 60-second consult-prep quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>consult-prep profile</b> &mdash; then the coach puts together a <b>personalized consultation plan</b> built around what matters most to you, plus what to bring to your first session. No spam, no guesswork.<br><br>' +
+      '<b>First: what&rsquo;s your training experience?</b>',
+      PREP_PRIORS.map(function (c) { return { label: c }; }));
+  }
+
+  function prepQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.prepquiz.prior = canonChoice(t, PREP_PRIORS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.prepquiz.prior) + '</b>. &#128203;<br><br><b>What matters most</b> for your training?',
+        PREP_PRIORITIES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.prepquiz.priority = canonChoice(t, PREP_PRIORITIES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.prepquiz.priority) + '</b> it is. &#128203;<br><br><b>What&rsquo;s your name</b> for the consult-prep profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the consult-prep profile?');
+      }
+      S.prepquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your consultation plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.prepquiz.phone = t;
+      return finishPrepQuiz();
+    }
+  }
+
+  function finishPrepQuiz() {
+    var q = S.prepquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Consult-prep quiz — qualified lead',
+      details: 'Prior ' + q.prior + ' · Priority ' + q.priority,
+      source: 'consult-prep quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.prepquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#128203;<br><br>Here&rsquo;s your consult-prep profile:' },
+      {
+        dash: [
+          ['Prior', q.prior],
+          ['Priority', q.priority]
+        ]
+      },
+      {
+        html: 'The coach will put together your <b>personalized consultation plan</b> built around your priority and send it to your number &mdash; plus what to bring to your first session (a note of your training history, any injuries or limitations, and your questions), so your first session is all signal, no guesswork. ' +
+          'No invented promises here &mdash; your plan is built around your goal and schedule, and the free discovery call is where the coach confirms the details with you. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a coaching conversation</b>, not a lead lost to the next coach. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -658,8 +737,14 @@
     if (S.mode === 'booking') return bookingStep(text);
     if (S.mode === 'afterhours') return afterHoursStep(text);
     if (S.mode === 'quiz') return quizStep(text);
+    if (S.mode === 'prepquiz') return prepQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
+    /* 60-sec consult-prep quiz: trigger BEFORE booking (gym 'consult' keyword
+       would hijack 'consult prep quiz') and BEFORE the training-quiz trigger
+       (word-start 'quiz' would hijack the 'prep quiz' chip value). Bare 'prep'
+       alone triggers nothing. */
+    if (has(t, 'prep quiz', 'consult prep quiz', 'consultation prep quiz')) return startPrepQuiz();
     if (has(t, 'book', 'consult', 'discovery', 'schedul', 'sign up', 'join', 'get started', 'free call', 'appointment', 'call back')) return startBooking();
     if (has(t, 'after hour', 'after-hour', 'closed', 'late night', 'midnight', '11:42')) return startAfterHours();
     if (has(t, 'review', 'rate your', 'stars', 'feedback')) return startReview();
