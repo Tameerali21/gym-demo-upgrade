@@ -385,6 +385,7 @@
     return [
       { label: '&#129522; 60-sec training quiz', value: 'quiz' },
       { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
+      { label: '&#128467; 60-sec schedule-fit quiz', value: 'schedule quiz' },
       { label: '&#128170; Programmes &amp; prices' },
       { label: '&#128197; Book a free discovery call' },
       { label: '&#127769; After-hours demo' },
@@ -730,6 +731,85 @@
     ]);
   }
 
+
+  /* ---------- 60-sec schedule-fit quiz (fleet third-quiz port, 2026-11-01, restaurant/real-estate/hotel pattern) ----------
+     HONESTY (hard rule): Kai NEVER invents results, guarantees, before/afters, prices
+     beyond the demo prices already labelled on this page, or availability — the quiz
+     promises a personalized schedule-fit plan built around the visitor's format + preferred
+     time, and the free discovery call is where the coach confirms the actual slot, nothing more.
+     ROUTER AUDIT 2026-11-01: the chip value 'schedule quiz' contains 'quiz', so the
+     training quiz's word-start 'quiz' match would hijack it (real-estate
+     'buy'/'buyer' bug class, 2026-10-20) — hence the schedule trigger sits BEFORE the
+     training-quiz trigger. It ALSO sits BEFORE the booking branch, because booking's
+     'schedul' keyword word-start-matches 'schedule' itself. Bare 'schedule' alone
+     triggers nothing new (it still falls through to booking, as before); bare 'quiz'
+     still starts the training quiz; bare 'fit' triggers nothing. */
+  var SCHED_FORMATS = ['1:1 online', 'Small group', 'Hybrid', 'App-only check-ins'];
+  var SCHED_TIMES = ['Early morning', 'Lunchtime', 'Evening', 'Weekends only'];
+
+  function startSchedQuiz() {
+    S.mode = 'schedquiz'; S.step = 0; S.schedquiz = {};
+    return say('<b>&#128467; The 60-second schedule-fit quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>schedule-fit profile</b> &mdash; then the coach puts together a <b>personalized schedule-fit plan</b> built around how and when you actually train, and confirms your slot on the free discovery call. No spam, no guesswork.<br><br>' +
+      '<b>First: how do you like to train?</b>',
+      SCHED_FORMATS.map(function (c) { return { label: c }; }));
+  }
+
+  function schedQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.schedquiz.format = canonChoice(t, SCHED_FORMATS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.schedquiz.format) + '</b>. &#128467;<br><br><b>When</b> do you usually have time to train?',
+        SCHED_TIMES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.schedquiz.time = canonChoice(t, SCHED_TIMES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.schedquiz.time) + '</b> it is. &#128467;<br><br><b>What&rsquo;s your name</b> for the schedule-fit profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the schedule-fit profile?');
+      }
+      S.schedquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your schedule-fit plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.schedquiz.phone = t;
+      return finishSchedQuiz();
+    }
+  }
+
+  function finishSchedQuiz() {
+    var q = S.schedquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Schedule-fit quiz — qualified lead',
+      details: 'Format ' + q.format + ' · Time ' + q.time,
+      source: 'schedule-fit quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.schedquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#128467;<br><br>Here&rsquo;s your schedule-fit profile:' },
+      {
+        dash: [
+          ['Format', q.format],
+          ['Time', q.time]
+        ]
+      },
+      {
+        html: 'The coach will put together your <b>personalized schedule-fit plan</b> built around your format and preferred time and send it to your number &mdash; and on the free discovery call the coach confirms the actual slot with you, so your training fits your life instead of fighting it. ' +
+          'No invented promises here &mdash; no slot is held until the coach confirms it with you. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a coaching conversation</b>, not a lead lost to the next coach. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -738,6 +818,7 @@
     if (S.mode === 'afterhours') return afterHoursStep(text);
     if (S.mode === 'quiz') return quizStep(text);
     if (S.mode === 'prepquiz') return prepQuizStep(text);
+    if (S.mode === 'schedquiz') return schedQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
     /* 60-sec consult-prep quiz: trigger BEFORE booking (gym 'consult' keyword
@@ -745,6 +826,11 @@
        (word-start 'quiz' would hijack the 'prep quiz' chip value). Bare 'prep'
        alone triggers nothing. */
     if (has(t, 'prep quiz', 'consult prep quiz', 'consultation prep quiz')) return startPrepQuiz();
+    /* 60-sec schedule-fit quiz: trigger BEFORE booking (booking's 'schedul'
+       keyword would hijack 'schedule quiz') and BEFORE the training-quiz trigger
+       (word-start 'quiz' would hijack the chip value). Bare 'schedule' alone
+       still falls through to booking; bare 'fit' triggers nothing. */
+    if (has(t, 'schedule quiz', 'schedule fit quiz')) return startSchedQuiz();
     if (has(t, 'book', 'consult', 'discovery', 'schedul', 'sign up', 'join', 'get started', 'free call', 'appointment', 'call back')) return startBooking();
     if (has(t, 'after hour', 'after-hour', 'closed', 'late night', 'midnight', '11:42')) return startAfterHours();
     if (has(t, 'review', 'rate your', 'stars', 'feedback')) return startReview();
