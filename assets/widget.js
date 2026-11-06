@@ -148,12 +148,13 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz
+    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | schedquiz | nutriquiz
     step: 0,
     booking: {},
     ah: {},
     quiz: {},
     prepquiz: {},
+    nutriquiz: {},
     lastTopic: null
   };
 
@@ -386,6 +387,7 @@
       { label: '&#129522; 60-sec training quiz', value: 'quiz' },
       { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
       { label: '&#128467; 60-sec schedule-fit quiz', value: 'schedule quiz' },
+      { label: '&#129367; 60-sec nutrition quiz', value: 'nutrition quiz' },
       { label: '&#128170; Programmes &amp; prices' },
       { label: '&#128197; Book a free discovery call' },
       { label: '&#127769; After-hours demo' },
@@ -810,6 +812,86 @@
     ]);
   }
 
+  /* ---------- 60-sec nutrition quiz (fleet fourth-quiz port, 2026-11-06, restaurant takeout pattern) ----------
+     HONESTY (hard rule): Kai NEVER invents results, guarantees, before/afters, prices
+     beyond the demo prices already labelled on this page, or availability — the quiz
+     promises a personalized nutrition plan built around the visitor's struggle +
+     approach, with macro targets, and the coach confirms the details on the free
+     discovery call — no slot is held until the coach confirms it.
+     ROUTER AUDIT 2026-11-06: the chip value 'nutrition quiz' contains 'quiz', so the
+     training quiz's word-start 'quiz' match would hijack it (real-estate
+     'buy'/'buyer' bug class, 2026-10-20) — hence the nutrition trigger sits FIRST,
+     before the prep-quiz trigger. 'nutrition'/'nutrit' is also an existing
+     service-branch keyword (nutritionHtml): bare 'nutrition' still reaches
+     nutritionHtml; only the full phrase 'nutrition quiz' starts the quiz. Bare
+     'quiz' still starts the training quiz; 'prep quiz' still starts the prep quiz;
+     'schedule quiz' still starts the schedule-fit quiz. */
+  var NUTRI_STRUGGLES = ['Portion sizes', 'Late-night snacking', 'No time to cook', 'Sweet tooth'];
+  var NUTRI_APPROACHES = ['App tracking', 'Weekly check-ins', 'Simple meal plan', 'Not sure yet'];
+
+  function startNutriQuiz() {
+    S.mode = 'nutriquiz'; S.step = 0; S.nutriquiz = {};
+    return say('<b>&#129367; The 60-second nutrition quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>nutrition profile</b> &mdash; then the coach puts together a <b>personalized nutrition plan</b> built around your biggest food struggle and the approach that fits your life, with macro targets to match your training. No spam, no guesswork.<br><br>' +
+      '<b>First: what&rsquo;s your biggest food struggle?</b>',
+      NUTRI_STRUGGLES.map(function (c) { return { label: c }; }));
+  }
+
+  function nutriQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.nutriquiz.struggle = canonChoice(t, NUTRI_STRUGGLES); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.nutriquiz.struggle) + '</b>. &#129367;<br><br><b>How</b> would you like to tackle it?',
+        NUTRI_APPROACHES.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.nutriquiz.approach = canonChoice(t, NUTRI_APPROACHES); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.nutriquiz.approach) + '</b> it is. &#129367;<br><br><b>What&rsquo;s your name</b> for the nutrition profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the nutrition profile?');
+      }
+      S.nutriquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your nutrition plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.nutriquiz.phone = t;
+      return finishNutriQuiz();
+    }
+  }
+
+  function finishNutriQuiz() {
+    var q = S.nutriquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Nutrition quiz — qualified lead',
+      details: 'Struggle ' + q.struggle + ' · Approach ' + q.approach,
+      source: 'nutrition quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.nutriquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#129367;<br><br>Here&rsquo;s your nutrition profile:' },
+      {
+        dash: [
+          ['Struggle', q.struggle],
+          ['Approach', q.approach]
+        ]
+      },
+      {
+        html: 'The coach will put together your <b>personalized nutrition plan</b> built around your struggle and approach, with macro targets to match your training, and send it to your number &mdash; and on the free discovery call the coach confirms the details with you. ' +
+          'No invented promises here &mdash; no slot is held until the coach confirms it with you. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a coaching conversation</b>, not a lead lost to the next coach. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -819,8 +901,15 @@
     if (S.mode === 'quiz') return quizStep(text);
     if (S.mode === 'prepquiz') return prepQuizStep(text);
     if (S.mode === 'schedquiz') return schedQuizStep(text);
+    if (S.mode === 'nutriquiz') return nutriQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
+    /* 60-sec nutrition quiz: trigger FIRST, before the prep-quiz trigger
+       (word-start 'quiz' would hijack the 'nutrition quiz' chip value) and
+       before the nutrition service branch ('nutrition'/'nutrit' keyword).
+       Bare 'nutrition' still reaches nutritionHtml; only the full phrase
+       'nutrition quiz' starts the quiz. */
+    if (has(t, 'nutrition quiz')) return startNutriQuiz();
     /* 60-sec consult-prep quiz: trigger BEFORE booking (gym 'consult' keyword
        would hijack 'consult prep quiz') and BEFORE the training-quiz trigger
        (word-start 'quiz' would hijack the 'prep quiz' chip value). Bare 'prep'
