@@ -148,13 +148,14 @@
 
   /* conversation state */
   var S = {
-    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | schedquiz | nutriquiz
+    mode: 'idle',          // idle | booking | afterhours | review | quiz | prepquiz | schedquiz | nutriquiz | recoveryquiz
     step: 0,
     booking: {},
     ah: {},
     quiz: {},
     prepquiz: {},
     nutriquiz: {},
+    recoveryquiz: {},
     lastTopic: null
   };
 
@@ -388,6 +389,7 @@
       { label: '&#128203; 60-sec consult-prep quiz', value: 'prep quiz' },
       { label: '&#128467; 60-sec schedule-fit quiz', value: 'schedule quiz' },
       { label: '&#129367; 60-sec nutrition quiz', value: 'nutrition quiz' },
+      { label: '&#129496; 60-sec recovery quiz', value: 'recovery quiz' },
       { label: '&#128170; Programmes &amp; prices' },
       { label: '&#128197; Book a free discovery call' },
       { label: '&#127769; After-hours demo' },
@@ -892,6 +894,89 @@
     ]);
   }
 
+  /* ---------- 60-sec recovery quiz (fleet fifth-quiz port, 2026-11-11, hotel loyalty / real-estate investment / restaurant brunch pattern) ----------
+     HONESTY (hard rule): Kai NEVER invents results, guarantees, before/afters, prices
+     beyond the demo prices already labelled on this page, or availability — the quiz
+     promises a personalized recovery plan built around the visitor's recovery goal +
+     method, and the coach confirms the details on the free discovery call — no slot
+     is held until the coach confirms it.
+     ROUTER AUDIT 2026-11-11: 'recovery'/'recover' appears NOWHERE in this file or
+     index.html as a router keyword or page keyword, so no earlier branch matches
+     'recovery quiz' — except the training quiz's word-start 'quiz' match, which
+     would hijack the chip value (real-estate 'buy'/'buyer' bug class, 2026-10-20)
+     — hence the recovery trigger sits FIRST, before the nutrition-quiz trigger.
+     Bare 'recovery' triggers nothing and reaches the graceful fallback; bare
+     'quiz' still starts the training quiz; 'prep quiz' / 'schedule quiz' /
+     'nutrition quiz' still start theirs. Q1 chip 'Stay injury-free' contains
+     'injur' and Q1 chip 'Sore less' contains 'sore' — both are safe because the
+     mode dispatch above the router sends quiz-mode input to recoveryQuizStep
+     before any branch is checked. */
+  var RECOVERY_GOALS = ['Sleep better', 'Sore less', 'Train more often', 'Stay injury-free'];
+  var RECOVERY_METHODS = ['Stretching & mobility', 'Sleep routine', 'Rest-day plan', 'Massage & cold therapy'];
+
+  function startRecoveryQuiz() {
+    S.mode = 'recoveryquiz'; S.step = 0; S.recoveryquiz = {};
+    return say('<b>&#129496; The 60-second recovery quiz!</b><br><br>' +
+      'Two quick questions and I&rsquo;ll build your <b>recovery profile</b> &mdash; then the coach puts together a <b>personalized recovery plan</b> built around your recovery goal and the method that fits your life, so you bounce back faster between sessions. No spam, no guesswork.<br><br>' +
+      '<b>First: what&rsquo;s your recovery goal?</b>',
+      RECOVERY_GOALS.map(function (c) { return { label: c }; }));
+  }
+
+  function recoveryQuizStep(text) {
+    var t = text.trim();
+    if (S.step === 0) {
+      S.recoveryquiz.goal = canonChoice(t, RECOVERY_GOALS); S.step = 1;
+      return say('Got it &mdash; <b>' + escapeHtml(S.recoveryquiz.goal) + '</b>. &#129496;<br><br><b>How</b> would you like to recover?',
+        RECOVERY_METHODS.map(function (x) { return { label: x }; }));
+    }
+    if (S.step === 1) {
+      S.recoveryquiz.method = canonChoice(t, RECOVERY_METHODS); S.step = 2;
+      return say('Noted &mdash; <b>' + escapeHtml(S.recoveryquiz.method) + '</b> it is. &#129496;<br><br><b>What&rsquo;s your name</b> for the recovery profile?');
+    }
+    if (S.step === 2) {
+      if (t.length < 2 || t.length > 40) {
+        return say('And your <b>name</b> for the recovery profile?');
+      }
+      S.recoveryquiz.name = t; S.step = 3;
+      return say('Thanks, ' + escapeHtml(cap(t.split(' ')[0])) + '! And the best <b>number</b> to send your recovery plan to?');
+    }
+    if (S.step === 3) {
+      var digits = t.replace(/\D/g, '');
+      if (digits.length < 7) {
+        return say('Hmm, that doesn\'t look like a complete number &mdash; mind double-checking it? <i>(digits only is fine)</i>');
+      }
+      S.recoveryquiz.phone = t;
+      return finishRecoveryQuiz();
+    }
+  }
+
+  function finishRecoveryQuiz() {
+    var q = S.recoveryquiz;
+    saveLead({
+      name: q.name,
+      phone: q.phone,
+      topic: 'Recovery quiz — qualified lead',
+      details: 'Goal ' + q.goal + ' · Method ' + q.method,
+      source: 'recovery quiz'
+    });
+    S.mode = 'idle'; S.step = 0; S.recoveryquiz = {};
+    return sayMany([
+      { html: '<b>&#9989; Quiz complete!</b> &#129496;<br><br>Here&rsquo;s your recovery profile:' },
+      {
+        dash: [
+          ['Goal', q.goal],
+          ['Method', q.method]
+        ]
+      },
+      {
+        html: 'The coach will put together your <b>personalized recovery plan</b> built around your goal and method and send it to your number &mdash; and on the free discovery call the coach confirms the details with you, so your recovery supports your training instead of slowing it down. ' +
+          'No invented promises here &mdash; no slot is held until the coach confirms it with you. ' +
+          'That&rsquo;s the whole point &mdash; <b>every visitor becomes a coaching conversation</b>, not a lead lost to the next coach. Anything else I can help with?',
+        chips: defaultChips()
+      }
+    ]);
+  }
+
   /* ---------- main router ---------- */
   function route(text) {
     var t = text.toLowerCase().trim();
@@ -902,8 +987,15 @@
     if (S.mode === 'prepquiz') return prepQuizStep(text);
     if (S.mode === 'schedquiz') return schedQuizStep(text);
     if (S.mode === 'nutriquiz') return nutriQuizStep(text);
+    if (S.mode === 'recoveryquiz') return recoveryQuizStep(text);
     if (S.mode === 'review' && S.step === 1) return reviewStep(text);
 
+    /* 60-sec recovery quiz: trigger FIRST, before the nutrition-quiz trigger
+       (word-start 'quiz' would hijack the 'recovery quiz' chip value) and
+       before every other branch — 'recovery' matches no router keyword, so
+       bare 'recovery' still reaches the graceful fallback; only the full
+       phrase 'recovery quiz' starts the quiz. */
+    if (has(t, 'recovery quiz')) return startRecoveryQuiz();
     /* 60-sec nutrition quiz: trigger FIRST, before the prep-quiz trigger
        (word-start 'quiz' would hijack the 'nutrition quiz' chip value) and
        before the nutrition service branch ('nutrition'/'nutrit' keyword).
